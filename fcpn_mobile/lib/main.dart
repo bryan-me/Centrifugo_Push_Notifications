@@ -4,21 +4,47 @@ import 'dart:convert';
 import 'package:centrifuge/centrifuge.dart' as centrifuge;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
-NotificationAppLaunchDetails notificationAppLaunchDetails;
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+NotificationAppLaunchDetails? notificationAppLaunchDetails;
 
-void main() => runApp(MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
+  notificationAppLaunchDetails = await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+  
+  final InitializationSettings initializationSettings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    iOS: DarwinInitializationSettings(),
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(
+    initializationSettings,
+    onDidReceiveNotificationResponse: onSelectNotification,
+  );
+
+  runApp(MyApp());
+}
+
+void onSelectNotification(NotificationResponse response) async {
+  // Handle notification response
+  final String? payload = response.payload;
+  if (payload != null && payload.isNotEmpty) {
+    debugPrint("payload : $payload");
+    // Do something with the payload
+  }
+}
 
 class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Centrifuge Demo',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        
       ),
       home: MyHomePage(title: 'Centrifuge Demo Home Page'),
     );
@@ -26,7 +52,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
+  MyHomePage({Key? key, required this.title}) : super(key: key);
 
   final String title;
 
@@ -35,10 +61,10 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  centrifuge.Client _centrifuge;
-  centrifuge.Subscription _subscription;
-  ScrollController _controller;
-  FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+  late centrifuge.Client _centrifuge;
+  centrifuge.Subscription? _subscription;
+  late ScrollController _controller;
+  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
 
   final _items = <_ChatItem>[];
 
@@ -50,35 +76,24 @@ class _MyHomePageState extends State<MyHomePage> {
 
     _controller = ScrollController();
     
-    flutterLocalNotificationsPlugin = new FlutterLocalNotificationsPlugin();
-    var android = new AndroidInitializationSettings('@mipmap/ic_launcher');
-    var iOS = new IOSInitializationSettings();
-    var initSetttings = new InitializationSettings(android, iOS);
-    flutterLocalNotificationsPlugin.initialize(initSetttings);  
-  }
-
-  Future onSelectNotification(String payload) {
-    debugPrint("payload : $payload");
-    showDialog(
-      context: context,
-      builder: (_) => new AlertDialog(
-        title: new Text('Notification'),
-        content: new Text('$payload'),
-      ),
-    );
+    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    var android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    var iOS = DarwinInitializationSettings();
+    var initSettings = InitializationSettings(android: android, iOS: iOS);
+    flutterLocalNotificationsPlugin.initialize(initSettings, onDidReceiveNotificationResponse: onSelectNotification);
   }
 
   Future<void> _showNotification(String msg) async {
-  var androidPlatformChannelSpecifics = AndroidNotificationDetails(
-      '696969', 'FCPN', 'FCPN Example',
-      importance: Importance.Max, priority: Priority.High, ticker: 'ticker');
-  var iOSPlatformChannelSpecifics = IOSNotificationDetails();
-  var platformChannelSpecifics = NotificationDetails(
-      androidPlatformChannelSpecifics, iOSPlatformChannelSpecifics);
-  await flutterLocalNotificationsPlugin.show(
-      0, 'plain title', msg, platformChannelSpecifics,
-      payload: 'item x');
-}
+    var androidPlatformChannelSpecifics = AndroidNotificationDetails(
+        '696969', 'FCPN',
+        importance: Importance.max, priority: Priority.high, ticker: 'ticker');
+    var iOSPlatformChannelSpecifics = DarwinNotificationDetails();
+    var platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics, iOS: iOSPlatformChannelSpecifics);
+    await flutterLocalNotificationsPlugin.show(
+        0, 'plain title', msg, platformChannelSpecifics,
+        payload: 'item x');
+  }
 
   @override
   void dispose() {
@@ -122,55 +137,110 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _connect() async {
     try {
-      _centrifuge.connect();
+      await _centrifuge.connect();
     } catch (exception) {
       _show(exception);
     }
   }
 
+  // void _subscribe() async {
+  //   final channel = 'global';
+  //   _subscription = _centrifuge.getSubscription(channel);
+
+  //   _subscription?.subscribeErrorStream.listen(_show);
+  //   _subscription?.subscribeSuccessStream.listen(_show);
+  //   _subscription?.unsubscribeStream.listen(_show);
+
+  //   final onNewItem = (_ChatItem item) {
+  //     setState(() {
+  //       _items.insert(0, item);
+  //     });
+  //   };
+
+  //   _subscription?.joinStream.listen((event) {
+  //     final user = event.user;
+  //     final client = event.client;
+
+  //     final item = _ChatItem(
+  //         title: 'User $user joined channel $channel',
+  //         subtitle: '(client ID $client)');
+  //     onNewItem(item);
+  //   });
+
+  //   _subscription?.leaveStream.listen((event) {
+  //     final user = event.user;
+  //     final client = event.client;
+  //     final item = _ChatItem(
+  //         title: 'User $user left channel $channel',
+  //         subtitle: '(client ID $client)');
+  //     onNewItem(item);
+  //   });
+
+  //   _subscription?.publishStream.listen((event) {
+  //     final String message = json.decode(utf8.decode(event.data))['input'];
+
+  //     _showNotification(message);
+  //     final item = _ChatItem(title: message, subtitle: 'User: user');
+  //     onNewItem(item);
+  //   });
+
+  //   _subscription?.subscribe();
+  // }
+
   void _subscribe() async {
-    final channel = 'global';
-    _subscription = _centrifuge.getSubscription(channel);
+  final channel = 'global';
+  _subscription = _centrifuge.getSubscription(channel);
 
-    _subscription.subscribeErrorStream.listen(_show);
-    _subscription.subscribeSuccessStream.listen(_show);
-    _subscription.unsubscribeStream.listen(_show);
+  _subscription?.error.listen((event) {
+    _show('Subscription error: $event');
+  });
 
-    final onNewItem = (_ChatItem item) {
-      setState(() {
-        _items.insert(0, item);
-      });
-    };
+  _subscription?.subscribed.listen((event) {
+    _show('Subscribed to channel: $channel');
+  });
 
-    _subscription.joinStream.listen((event) {
-      final user = event.user;
-      final client = event.client;
+  _subscription?.unsubscribe();
 
-      final item = _ChatItem(
-          title: 'User $user joined channel $channel',
-          subtitle: '(client ID $client)');
-      onNewItem(item);
+  final onNewItem = (_ChatItem item) {
+    setState(() {
+      _items.insert(0, item);
     });
+  };
 
-    _subscription.leaveStream.listen((event) {
-      final user = event.user;
-      final client = event.client;
-      final item = _ChatItem(
-          title: 'User $user left channel $channel',
-          subtitle: '(client ID $client)');
-      onNewItem(item);
-    });
+  _subscription?.join.listen((event) {
+    final user = event.user;
+    final client = event.client;
 
-    _subscription.publishStream.listen((event) {
-      final String message = json.decode(utf8.decode(event.data))['input'];
+    final item = _ChatItem(
+        title: 'User $user joined channel $channel',
+        subtitle: '(client ID $client)');
+    onNewItem(item);
+  });
 
-     _showNotification(message);
-      final item = _ChatItem(title: message, subtitle: 'User: user');
-      onNewItem(item);
-    });
+  _subscription?.leave.listen((event) {
+    final user = event.user;
+    final client = event.client;
+    final item = _ChatItem(
+        title: 'User $user left channel $channel',
+        subtitle: '(client ID $client)');
+    onNewItem(item);
+  });
 
-    _subscription.subscribe();
+  // _subscription?.publish.listen((data) {
+  //   final String message = json.decode(utf8.decode(data))['input'];
+
+  //   _showNotification(message);
+  //   final item = _ChatItem(title: message, subtitle: 'User: user');
+  //   onNewItem(item);
+  // });
+
+  try {
+    await _subscription?.subscribe();
+  } catch (e) {
+    _show('Subscription failed: $e');
   }
+}
+
 
   void _show(dynamic error) {
     showDialog<AlertDialog>(
@@ -185,9 +255,8 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 
 class _ChatItem {
-  _ChatItem({this.title, this.subtitle});
+  _ChatItem({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
 }
-
